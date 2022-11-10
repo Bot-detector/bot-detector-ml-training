@@ -94,7 +94,7 @@ BOSSES = [
 ]
 HISCORE_COLUMNS = ["total"] + SKILLS + MINIGAMES + BOSSES
 
-def get_ratio(df: pd.DataFrame, COLUMNS: list, total_column:str="", column_suffix:str="ratio") -> pd.DataFrame:
+def get_ratio(df: pd.DataFrame, COLUMNS: list, total_column:str="total", column_suffix:str="ratio") -> pd.DataFrame:
     _df = pd.DataFrame(index=df.index)
     TOTAL = df[COLUMNS].sum(axis=1).astype(np.int32)
     for column in COLUMNS:
