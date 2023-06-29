@@ -1,3 +1,5 @@
+import os.path
+
 import pandas as pd
 import numpy as np
 from enum import Enum
@@ -160,6 +162,19 @@ MINIGAMES = [c.value for c in Minigame]
 BOSSES = [c.value for c in Boss]
 
 HISCORE_COLUMNS = ["total"] + SKILLS + MINIGAMES + BOSSES
+
+class XPTable():
+    _xp_table = None
+    @classmethod
+    def exp_to_level(cls, exp):
+        if exp == 0:
+            return 1
+        if cls._xp_table is None:
+            # level_exp.csv attained from https://oldschool.runescape.wiki/w/Experience
+            filename = os.path.realpath(os.path.join(os.path.dirname(__file__), 'level_exp.csv'))
+            cls._xp_table = pd.read_csv(filename, sep = '\t')
+        return int(cls._xp_table[cls._xp_table['Exp.'] < exp].iloc[-1]['Level'])
+
 
 def get_ratio(df: pd.DataFrame, COLUMNS: list, total_column:str=None, column_suffix:str="ratio") -> pd.DataFrame:
     """
