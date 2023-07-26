@@ -11,11 +11,13 @@ import joblib
 
 logger = logging.getLogger(__name__)
 
-class classifier():
+
+class classifier:
     """
     This class is a wrapper for RandomForestClassifier.
     It adds the ability to save and load the model.
     """
+
     working_directory = os.path.dirname(os.path.realpath(__file__))
     path = os.path.join(working_directory, "models")
     if not os.path.exists(path):
@@ -54,7 +56,6 @@ class classifier():
                 }
                 # add dict to array
                 files.append(d)
-
 
         if not files:
             return None
@@ -95,7 +96,6 @@ class classifier():
             compress=3,
         )
 
-
     def score(self, test_y, test_x):
         """
         Calculate the accuracy and roc_auc score for the classifier.
@@ -104,7 +104,7 @@ class classifier():
         :return: accuracy and roc_auc score
         """
         labels = test_y.unique().to_arrow().to_pylist()
-        print(f'labels: {labels}')
+        print(f"labels: {labels}")
 
         # make predictions
         pred_y = self.rfc.predict(test_x)
@@ -112,29 +112,29 @@ class classifier():
 
         if len(labels) == 2:
             pred_proba_y = pred_y  # pred_proba_y[:, 1]
-            self.roc_auc = cuml.metrics.roc_auc_score(
-                test_y, pred_proba_y
-            )
+            self.roc_auc = cuml.metrics.roc_auc_score(test_y, pred_proba_y)
         else:
             self.roc_auc = None
-            
+
         self.accuracy = cuml.metrics.accuracy.accuracy_score(test_y, pred_y)
 
         # labels = ["Not bot", "bot"] if len(labels) == 2 else labels
 
         logger.info(cuml.metrics.confusion_matrix(test_y, pred_y, convert_dtype=True))
         return self.accuracy, self.roc_auc
-    
+
     def fit(self, train_x, train_y, *args, **kwargs):
         kwargs = kwargs if len(kwargs) != 0 else {}
         args = args if len(args) != 0 else []
-        # self.rfc = cuml.ensemble.RandomForestClassifier(*args, 
+        # self.rfc = cuml.ensemble.RandomForestClassifier(*args,
         #     split_criterion=0, handle=0, verbose=False, output_type=None,
         #     **kwargs)
-        self.rfc = cuml.ensemble.RandomForestClassifier(split_criterion=0, handle=None, n_estimators=100, verbose=True)
+        self.rfc = cuml.ensemble.RandomForestClassifier(
+            split_criterion=0, handle=None, n_estimators=100, verbose=True
+        )
         start_time = time.time()
         self.rfc.fit(train_x, train_y)
-        print('fit time:', time.time()-start_time)
-        
+        print("fit time:", time.time() - start_time)
+
     def predict(self, x):
         return self.rfc.predict(x)

@@ -1,4 +1,3 @@
-
 # Based on:
 # https://github.com/Bot-detector/bot-detector-ML/blob/develop/api/MachineLearning/data.py
 from src.utils import utils
@@ -69,7 +68,7 @@ class hiscoreData:
         self.__clean()
         self.__skill_ratio()
         self.__boss_ratio()
-        
+
     # def __del__(self):
     #     del self.df_clean
     #     del self.df_low
@@ -97,9 +96,7 @@ class hiscoreData:
         self.df_clean = self.df_clean.replace(-1, 0)
 
         # bosses
-        self.bosses = [
-            c for c in self.df_clean.columns if c in utils.BOSSES
-        ]
+        self.bosses = [c for c in self.df_clean.columns if c in utils.BOSSES]
         # total is not always on hiscores, create a total xp column
         self.df_clean["total"] = self.df_clean[self.skills].sum(axis=1)
 
@@ -116,9 +113,9 @@ class hiscoreData:
             non_total_features = [
                 col for col in self.df_clean.columns if "total" not in col
             ]
-            self.df_clean[non_total_features] = self.df_clean[non_total_features].astype(
-                np.int32
-            )
+            self.df_clean[non_total_features] = self.df_clean[
+                non_total_features
+            ].astype(np.int32)
 
         # get low lvl players
         mask = self.df_clean["total"] < 1_000_000

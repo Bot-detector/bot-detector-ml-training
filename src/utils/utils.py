@@ -4,6 +4,7 @@ import pandas as pd
 import numpy as np
 from enum import Enum
 
+
 class CombatSkill(Enum):
     ATTACK = "attack"
     DEFENCE = "defence"
@@ -13,12 +14,14 @@ class CombatSkill(Enum):
     PRAYER = "prayer"
     MAGIC = "magic"
 
+
 class GatheringSkill(Enum):
     WOODCUTTING = "woodcutting"
     FISHING = "fishing"
     MINING = "mining"
     FARMING = "farming"
     HUNTER = "hunter"
+
 
 class ArtisanSkill(Enum):
     COOKING = "cooking"
@@ -30,10 +33,12 @@ class ArtisanSkill(Enum):
     RUNECRAFT = "runecraft"
     CONSTRUCTION = "construction"
 
+
 class SupportSkill(Enum):
     AGILITY = "agility"
     THIEVING = "thieving"
     SLAYER = "slayer"
+
 
 class MemberSkill(Enum):
     FLETCHING = "fletching"
@@ -44,6 +49,7 @@ class MemberSkill(Enum):
     FARMING = "farming"
     HUNTER = "hunter"
     CONSTRUCTION = "construction"
+
 
 class Skill(Enum):
     ATTACK = "attack"
@@ -73,6 +79,7 @@ class Skill(Enum):
     def __repr__(self):
         return self.value
 
+
 class ClueScroll(Enum):
     CS_ALL = "cs_all"
     CS_BEGINNER = "cs_beginner"
@@ -84,7 +91,8 @@ class ClueScroll(Enum):
 
     def __repr__(self):
         return self.value
-    
+
+
 class Minigame(Enum):
     LEAGUE = "league"
     BOUNTY_HUNTER_HUNTER = "bounty_hunter_hunter"
@@ -101,6 +109,7 @@ class Minigame(Enum):
 
     def __repr__(self):
         return self.value
+
 
 class Boss(Enum):
     abyssal_sire = "abyssal_sire"
@@ -157,35 +166,45 @@ class Boss(Enum):
     def __repr__(self):
         return self.value
 
+
 SKILLS = [c.value for c in Skill]
 MINIGAMES = [c.value for c in Minigame]
 BOSSES = [c.value for c in Boss]
 
 HISCORE_COLUMNS = ["total"] + SKILLS + MINIGAMES + BOSSES
 
-class XPTable():
+
+class XPTable:
     _xp_table = None
+
     @classmethod
     def exp_to_level(cls, exp):
         if exp == 0:
             return 1
         if cls._xp_table is None:
             # level_exp.csv attained from https://oldschool.runescape.wiki/w/Experience
-            filename = os.path.realpath(os.path.join(os.path.dirname(__file__), 'level_exp.csv'))
-            cls._xp_table = pd.read_csv(filename, sep = '\t')
-        return int(cls._xp_table[cls._xp_table['Exp.'] < exp].iloc[-1]['Level'])
+            filename = os.path.realpath(
+                os.path.join(os.path.dirname(__file__), "level_exp.csv")
+            )
+            cls._xp_table = pd.read_csv(filename, sep="\t")
+        return int(cls._xp_table[cls._xp_table["Exp."] < exp].iloc[-1]["Level"])
 
 
-def get_ratio(df: pd.DataFrame, COLUMNS: list, total_column:str=None, column_suffix:str="ratio") -> pd.DataFrame:
+def get_ratio(
+    df: pd.DataFrame,
+    COLUMNS: list,
+    total_column: str = None,
+    column_suffix: str = "ratio",
+) -> pd.DataFrame:
     """
     Calculate the ratio of each column in the given DataFrame to the sum of all columns in COLUMNS.
-    
+
     Args:
         df: The DataFrame to calculate ratios for.
         COLUMNS: A list of columns to calculate ratios for.
         total_column: The name of the column to use for the total.
         column_suffix: The suffix to use for the ratio columns.
-    
+
     Returns:
         A new DataFrame with the same index as df where each column in COLUMNS has been replaced
         with the corresponding ratio. Additionally, the function calculates the total of all columns

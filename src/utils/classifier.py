@@ -7,16 +7,21 @@ import numpy as np
 import pandas as pd
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import (balanced_accuracy_score, classification_report,
-                             roc_auc_score)
+from sklearn.metrics import (
+    balanced_accuracy_score,
+    classification_report,
+    roc_auc_score,
+)
 
 logger = logging.getLogger(__name__)
+
 
 class classifier(RandomForestClassifier):
     """
     This class is a wrapper for RandomForestClassifier.
     It adds the ability to save and load the model.
     """
+
     working_directory = os.path.dirname(os.path.realpath(__file__))
     path = os.path.join(working_directory, "models")
     if not os.path.exists(path):
@@ -57,7 +62,6 @@ class classifier(RandomForestClassifier):
                 # add dict to array
                 files.append(d)
 
-
         if not files:
             return None
 
@@ -97,7 +101,6 @@ class classifier(RandomForestClassifier):
             compress=3,
         )
 
-
     def score(self, test_y, test_x):
         """
         Calculate the accuracy and roc_auc score for the classifier.
@@ -106,7 +109,7 @@ class classifier(RandomForestClassifier):
         :return: accuracy and roc_auc score
         """
         labels = np.unique(test_y).tolist()
-        print(f'labels: {labels}')
+        print(f"labels: {labels}")
 
         # make predictions
         pred_y = self.predict(test_x)
@@ -124,12 +127,14 @@ class classifier(RandomForestClassifier):
 
         logger.info(classification_report(test_y, pred_y, target_names=labels))
         return self.accuracy, self.roc_auc
-    
+
+
 class DTclassifier(DecisionTreeClassifier):
     """
     This class is a wrapper for RandomForestClassifier.
     It adds the ability to save and load the model.
     """
+
     working_directory = os.path.dirname(os.path.realpath(__file__))
     path = os.path.join(working_directory, "models")
     if not os.path.exists(path):
@@ -170,7 +175,6 @@ class DTclassifier(DecisionTreeClassifier):
                 # add dict to array
                 files.append(d)
 
-
         if not files:
             return None
 
@@ -210,7 +214,6 @@ class DTclassifier(DecisionTreeClassifier):
             compress=3,
         )
 
-
     def score(self, test_y, test_x, labels=None):
         """
         Calculate the accuracy and roc_auc score for the classifier.
@@ -220,7 +223,7 @@ class DTclassifier(DecisionTreeClassifier):
         """
         if labels is None:
             labels = np.unique(test_y).tolist()
-        logger.info('labels: ', labels)
+        logger.info("labels: ", labels)
 
         # make predictions
         pred_y = self.predict(test_x)
