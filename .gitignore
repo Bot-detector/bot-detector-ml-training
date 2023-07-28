@@ -1,6 +1,7 @@
 # Output files:
 src/data/raw/2022-10-26_hiscore_data.csv
-src/discovery/output/
+src/data/output/*.csv
+src/data/output/*.txt
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
