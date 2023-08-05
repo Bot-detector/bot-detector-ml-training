@@ -175,19 +175,20 @@ HISCORE_COLUMNS = ["total"] + SKILLS + MINIGAMES + BOSSES
 
 
 class XPTable:
-    _xp_table = None
+    def __init__(self) -> None:
+        # level_exp.csv attained from https://oldschool.runescape.wiki/w/Experience
+        filename = os.path.realpath(
+            os.path.join(os.path.dirname(__file__), "level_exp.csv")
+        )
+        self.df = pd.read_csv(filename, sep="\t")
 
-    @classmethod
-    def exp_to_level(cls, exp):
+    def exp_to_level(self, exp):
         if exp == 0:
             return 1
-        if cls._xp_table is None:
-            # level_exp.csv attained from https://oldschool.runescape.wiki/w/Experience
-            filename = os.path.realpath(
-                os.path.join(os.path.dirname(__file__), "level_exp.csv")
-            )
-            cls._xp_table = pd.read_csv(filename, sep="\t")
-        return int(cls._xp_table[cls._xp_table["Exp."] < exp].iloc[-1]["Level"])
+
+        mask = self.df["Exp."] < exp
+        value = self.df[mask].iloc[-1]["Level"]
+        return int(value)
 
 
 def get_ratio(
