@@ -14,7 +14,7 @@ services:
     ports:
       - "5000:5000"
     command: >
-      bash -c "pip install psycopg2-binary && 
+      bash -c "pip install psycopg2-binary boto3 && 
       mlflow server --backend-store-uri postgresql://user:password@postgres:5432/mlflowdb 
       --artifacts-destination s3://bucket --host 0.0.0.0 --port 5000"
   # PostgreSQL database
@@ -34,6 +34,8 @@ services:
     expose:
       - "9000"
       - "9001"
+    ports:
+      - 9001
     environment:
       MINIO_ROOT_USER: "minio_user"
       MINIO_ROOT_PASSWORD: "minio_password"
