@@ -33,9 +33,9 @@ def evaluate_and_log_metrics(model, X_test, y_test):
     print(f"      - TP: {tp}, FP: {fp}")
 
     # 3. Log derived metrics like accuracy
-    accuracy = float(accuracy_score(y_test, predictions))
+    accuracy = round(float(accuracy_score(y_test, predictions)), 4)
     mlflow.log_metric("accuracy", accuracy)
-    print(f"      - Accuracy: {accuracy:.4f}")
+    print(f"      - Accuracy: {accuracy}")
 
     # 4. Log the full classification report as a text artifact
     # This gives you precision, recall, and f1-score for each class.
