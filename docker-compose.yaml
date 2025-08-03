@@ -27,7 +27,7 @@ services:
     expose:
       - "5432"
     volumes:
-      - ./_postgres-data:/var/lib/postgresql/data
+      - ./_postgres_data:/var/lib/postgresql/data
   # MinIO server
   minio:
     image: minio/minio
@@ -38,7 +38,7 @@ services:
       MINIO_ROOT_USER: "minio_user"
       MINIO_ROOT_PASSWORD: "minio_password"
     volumes:
-      - ./_minio-data:/data
+      - ./_minio_data:/data
     healthcheck:
       test: timeout 5s bash -c ':> /dev/tcp/127.0.0.1/9000' || exit 1
       interval: 1s

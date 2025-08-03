@@ -134,7 +134,7 @@ dmypy.json
 .pyre/
 src/data/calculated/*.gzip
 
-_minio-data/*
-_minio-data/.gitkeep
-_postgres-data/*
-_postgres-data/.gitkeep
+_minio_data/*
+_minio_data/.gitkeep
+_postgres_data/*
+_postgres_data/.gitkeep
