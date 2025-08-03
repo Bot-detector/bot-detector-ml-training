@@ -133,5 +133,8 @@ dmypy.json
 # Pyre type checker
 .pyre/
 src/data/calculated/*.gzip
-postgres-data/*
-mlruns/*
+
+_minio-data/*
+_minio-data/.gitkeep
+_postgres-data/*
+_postgres-data/.gitkeep
