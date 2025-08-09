@@ -1,10 +1,9 @@
 import mlflow
 from sklearn.metrics import confusion_matrix, accuracy_score, classification_report
-from mlflow.models import infer_signature
-import warnings
+from sklearn.pipeline import Pipeline
 
 
-def evaluate_and_log_metrics(model, X_test, y_test):
+def evaluate_and_log_metrics(model: Pipeline, X_test, y_test):
     """
     Evaluates a trained model and logs key metrics and artifacts to MLflow.
     This function is the heart of your model validation.
@@ -17,7 +16,7 @@ def evaluate_and_log_metrics(model, X_test, y_test):
     print("    - Evaluating model...")
 
     # Make predictions on the held-out test set
-    predictions = model.predict(X_test)
+    predictions = model.predict(X=X_test)
 
     # 1. Calculate the Confusion Matrix to get raw counts
     # The .ravel() function flattens the 2x2 matrix into a simple array.
@@ -61,19 +60,6 @@ def log_model_artifact(model, model_name: str, input_example):
         artifact_path (str): The name for the artifact folder where the model is saved.
         input_example: A sample of the training data (e.g., X_train.head()).
     """
-    # Infer the model's "signature" - its expected input and output schema.
-    # This is a best practice that makes reloading and using the model safer.
-    # TODO: fix this
-    # with warnings.catch_warnings():
-    #     warnings.filterwarnings(
-    #         "ignore",
-    #         message="Hint: Inferred schema contains integer column(s).",
-    #     )
-    #     signature = infer_signature(
-    #         model_input=input_example,
-    #         model_output=model.predict(input_example),
-    #     )
-
     # Log the model using MLflow's scikit-learn integration.
     mlflow.sklearn.log_model(
         sk_model=model,
