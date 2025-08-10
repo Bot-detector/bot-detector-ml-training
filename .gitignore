@@ -135,7 +135,5 @@ dmypy.json
 src/data/calculated/*.gzip
 
 _minio_data/*
-_minio_data/.gitkeep
 _postgres_data/*
-_postgres_data/.gitkeep
 mlruns/*

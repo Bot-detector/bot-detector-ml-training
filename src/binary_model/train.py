@@ -208,34 +208,32 @@ def main():
                 params=params,
                 experiment_id=experiment_id,
             )
-            break
 
-    #
-    query = f"tags.mlflow.parentRunId = '{parent_run.info.run_id}'"
-    results = mlflow.search_runs(
-        experiment_ids=[experiment_id],
-        filter_string=query,
-        order_by=["metrics.`weighted avg-f1-score` DESC"],
-        max_results=5,
-    )
+    # query = f"tags.mlflow.parentRunId = '{parent_run.info.run_id}'"
+    # results = mlflow.search_runs(
+    #     experiment_ids=[experiment_id],
+    #     filter_string=query,
+    #     order_by=["metrics.`weighted avg-f1-score` DESC"],
+    #     max_results=5,
+    # )
 
-    best_run_id = results.iloc[0]["run_id"]
+    # best_run_id = results.iloc[0]["run_id"]
 
-    model_uri = f"runs:/{best_run_id}/model"
-    print(model_uri)
-    loaded_model: DecisionTreeClassifier = mlflow.sklearn.load_model(model_uri)
-    # Get feature importances
-    importances = loaded_model.feature_importances_
+    # model_uri = f"runs:/{best_run_id}/model"
+    # print(model_uri)
+    # loaded_model: DecisionTreeClassifier = mlflow.sklearn.load_model(model_uri)
+    # # Get feature importances
+    # importances = loaded_model.feature_importances_
 
-    # Select features with importance greater than a threshold
-    threshold = 0.1  # Adjust as needed
-    selected_features = X.columns[importances > threshold]
-    print(selected_features)
+    # # Select features with importance greater than a threshold
+    # threshold = 0.1  # Adjust as needed
+    # selected_features = X.columns[importances > threshold]
+    # print(selected_features)
 
-    # Use only the selected features
-    X_train_selected = X_train[selected_features]
-    X_test_selected = X_test[selected_features]
-    loaded_model.fit(X_train_selected, y_train)
+    # # Use only the selected features
+    # X_train_selected = X_train[selected_features]
+    # X_test_selected = X_test[selected_features]
+    # loaded_model.fit(X_train_selected, y_train)
 
 
 if __name__ == "__main__":
