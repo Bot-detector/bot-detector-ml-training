@@ -137,3 +137,4 @@ src/data/calculated/*.gzip
 _minio_data/*
 _postgres_data/*
 mlruns/*
+*temp*
