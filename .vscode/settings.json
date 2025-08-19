@@ -4,5 +4,17 @@
     "python.linting.enabled": true,
     "python.linting.ruffEnabled": true,
     "python.linting.pylintEnabled": false,
-    "python.linting.flake8Enabled": false
+    "python.linting.flake8Enabled": false,
+    "sqltools.connections": [
+        {
+            "previewLimit": 50,
+            "server": "localhost",
+            "port": 5432,
+            "driver": "PostgreSQL",
+            "name": "mlflowdb",
+            "username": "user",
+            "password": "password",
+            "database": "mlflowdb"
+        }
+    ]
 }

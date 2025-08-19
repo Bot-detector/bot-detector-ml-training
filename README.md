@@ -1,3 +1,4 @@
 ```sh
-uv run src/train_binary.pys
+uv run src/binary_model/train.py
+uv run src/multi_model/train.py
 ```
