@@ -16,8 +16,8 @@ import time
 TRACKING_SERVER_URI = "http://localhost:5000"
 EXPERIMENT_NAME = "multi_classifier"
 
-DATA_FILE = "data/2022-10-26_hiscore_data.parquet.gzip"
-TARGET_COLUMN = "label"
+DATA_FILE = "data/2025-08-30_hiscore_data.parquet.gzip"
+TARGET_COLUMN = "player_label"
 SKILLS = [
     "attack",
     "defence",
@@ -44,9 +44,9 @@ SKILLS = [
     "construction",
 ]
 MINIGAMES = [
-    "league",
-    "bounty_hunter_hunter",
-    "bounty_hunter_rogue",
+    # "league",
+    # "bounty_hunter_hunter",
+    # "bounty_hunter_rogue",
     "lms_rank",
     "soul_wars_zeal",
     "cs_all",
@@ -127,22 +127,45 @@ def load_data(file_path: str, feature_columns: list[str]):
 
 
 def data_cleaning(df: pd.DataFrame) -> pd.DataFrame:
-    # print(pd.DataFrame(df.label.value_counts()))
+    print(pd.DataFrame(df.player_label.value_counts()))
+    mask = df["player_label_id"].isin([0, 89])
+    df = df[~mask].copy()
+
     common_labels = (
-        pd.DataFrame(df.label.value_counts()).query("count > 200").index.to_list()
+        pd.DataFrame(df.player_label.value_counts())
+        .query("count > 200")
+        .index.to_list()
     )
-    mask = df.label.isin(common_labels)
+    mask = df.player_label.isin(common_labels)
     df = df[mask].copy()
-    # print(pd.DataFrame(df.label.value_counts()))
+    print(pd.DataFrame(df.player_label.value_counts()))
     return df
 
 
+def get_ratio(
+    df: pd.DataFrame,
+    COLUMNS: list,
+    total_column: str = None,
+    column_suffix: str = "ratio",
+) -> pd.DataFrame:
+    _df = df.copy()
+    TOTAL = df[COLUMNS].sum(axis=1)
+    for column in COLUMNS:
+        _df[f"{column}_{column_suffix}"] = df[column] / TOTAL
+    if total_column:
+        _df[total_column] = TOTAL
+    return _df
+
+
 def feature_engineering(df: pd.DataFrame) -> pd.DataFrame:
+    if "total" in df.columns:
+        df.drop(columns=["total"], inplace=True)
+    df = get_ratio(df, SKILLS, total_column="skill_total")
+    df = get_ratio(df, BOSSES, total_column="boss_total")
     return df
 
 
 def get_metrics(model: DecisionTreeClassifier, X_test, y_test) -> dict:
-    metrics = {}
     # Predict and evaluate
     y_pred = model.predict(X_test)
 
@@ -158,23 +181,33 @@ def get_metrics(model: DecisionTreeClassifier, X_test, y_test) -> dict:
         return
 
     report_dict: dict[str, dict | str]
+    metrics = {}
     for pred, v in report_dict.items():
         if not isinstance(v, dict):
             continue
         for _k, _v in v.items():
-            mlflow.log_metric(
-                key=f"{pred}.{_k}",
-                value=round(_v, 4),
-                synchronous=True,
-                timestamp=time.time_ns(),
-            )
+            # mlflow.log_metric(key=f"{pred}.{_k}", value=round(_v, 4))
             # print({f"{pred}.{_k}": round(_v, 4)})
-            # metrics.update({f"{pred}.{_k}": round(_v, 4)})
+            metrics.update({f"{pred}.{_k}": round(_v, 4)})
     return metrics
 
 
-def train(X_train, y_train, X_test, y_test, model_name, params: dict, experiment_id):
-    with mlflow.start_run(nested=True, experiment_id=experiment_id) as run:
+def train(
+    X_train,
+    y_train,
+    X_test,
+    y_test,
+    model_name,
+    params: dict,
+    experiment_id,
+    parent_run_id,
+):
+    with mlflow.start_run(
+        nested=True,
+        experiment_id=experiment_id,
+        parent_run_id=parent_run_id,
+        log_system_metrics=False,
+    ) as run:
         print(f"Run ID: {run.info.run_id} - run_name={run.info.run_name} - child")
         print(f"Training with params: {params}")
 
@@ -187,17 +220,17 @@ def train(X_train, y_train, X_test, y_test, model_name, params: dict, experiment
         mlflow.log_params(params=params, run_id=run.info.run_id)
 
         # idk what is wrong here if i leave this out it works
-        mlflow.sklearn.log_model(sk_model=model, name=model_name)
+        mlflow.sklearn.log_model(sk_model=model, name=model_name, step=1)
 
 
 def main():
     df = load_data(file_path=DATA_FILE, feature_columns=FEATURE_COLUMNS)
     df = data_cleaning(df)
-    # df = feature_engineering(df)
+    df = feature_engineering(df)
 
     X, y = df[FEATURE_COLUMNS], df[TARGET_COLUMN]
     X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.2, random_state=42
+        X, y, test_size=0.2, random_state=42, stratify=y
     )
 
     param_grid = ParameterGrid(
@@ -207,10 +240,10 @@ def main():
             "min_samples_leaf": [5, 10, 20],
         }
     )
-
+    today_iso = time.strftime("%Y-%m-%d")
     mlflow.set_tracking_uri(TRACKING_SERVER_URI)
     experiment_id = mlflow.create_experiment(
-        f"{EXPERIMENT_NAME}-{str(uuid.uuid4())[:4]}"
+        f"{today_iso}_{EXPERIMENT_NAME}_{str(uuid.uuid4())[:4]}"
     )
     with mlflow.start_run(experiment_id=experiment_id) as parent_run:
         print(
@@ -225,6 +258,7 @@ def main():
                 model_name=f"{EXPERIMENT_NAME}_{i}",
                 params=params,
                 experiment_id=experiment_id,
+                parent_run_id=parent_run.info.run_id,
             )
 
 

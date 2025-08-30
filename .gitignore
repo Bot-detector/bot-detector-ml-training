@@ -138,3 +138,4 @@ _minio_data/*
 _postgres_data/*
 mlruns/*
 *temp*
+/data/*.zip
