@@ -2,19 +2,14 @@ import pandas as pd
 from sklearn.model_selection import train_test_split
 from sklearn.tree import DecisionTreeClassifier
 import mlflow
-from sklearn.model_selection import ParameterGrid
-from sklearn.metrics import (
-    accuracy_score,
-    roc_auc_score,
-    confusion_matrix,
-    classification_report,
-)
+from sklearn.metrics import classification_report
 import uuid
 import time
+from mlflow.tracking import MlflowClient
 
-# --- Configuration ---
+##### Configuration #####
 TRACKING_SERVER_URI = "http://localhost:5000"
-EXPERIMENT_NAME = "multi_classifier"
+EXPERIMENT_NAME = "2025-08-30_multi_classifier_559f"
 
 DATA_FILE = "data/2025-08-30_hiscore_data.parquet.gzip"
 TARGET_COLUMN = "player_label"
@@ -127,7 +122,7 @@ def load_data(file_path: str, feature_columns: list[str]):
 
 
 def data_cleaning(df: pd.DataFrame) -> pd.DataFrame:
-    print(pd.DataFrame(df.player_label.value_counts()))
+    # print(pd.DataFrame(df.player_label.value_counts()))
     mask = df["player_label_id"].isin([0, 89])
     df = df[~mask].copy()
 
@@ -138,7 +133,7 @@ def data_cleaning(df: pd.DataFrame) -> pd.DataFrame:
     )
     mask = df.player_label.isin(common_labels)
     df = df[mask].copy()
-    print(pd.DataFrame(df.player_label.value_counts()))
+    # print(pd.DataFrame(df.player_label.value_counts()))
     return df
 
 
@@ -236,33 +231,58 @@ def main():
         X, y, test_size=0.2, random_state=42, stratify=y
     )
 
-    param_grid = ParameterGrid(
-        {
-            "criterion": ["gini", "entropy"],
-            "max_depth": [10, 30, 50, 100, 200, 500],
-            "min_samples_leaf": [5, 10, 20],
-        }
-    )
-    today_iso = time.strftime("%Y-%m-%d")
     mlflow.set_tracking_uri(TRACKING_SERVER_URI)
-    experiment_id = mlflow.create_experiment(
-        f"{today_iso}_{EXPERIMENT_NAME}_{str(uuid.uuid4())[:4]}"
+    client = MlflowClient()
+
+    ##### 1. Find best run #####
+    experiment = client.get_experiment_by_name(EXPERIMENT_NAME)
+    if experiment is None:
+        raise ValueError(f"Experiment {EXPERIMENT_NAME} not found.")
+
+    runs = client.search_runs(
+        experiment_ids=[experiment.experiment_id],
+        order_by=["metrics.`macro avg.f1-score` DESC"],
+        max_results=1,
     )
-    with mlflow.start_run(experiment_id=experiment_id) as parent_run:
-        print(
-            f"Run ID: {parent_run.info.run_id} - run_name={parent_run.info.run_name} - parent"
-        )
-        for i, params in enumerate(param_grid):
-            train(
-                X_train=X_train,
-                y_train=y_train,
-                X_test=X_test,
-                y_test=y_test,
-                model_name=f"{EXPERIMENT_NAME}_{i}",
-                params=params,
-                experiment_id=experiment_id,
-                parent_run_id=parent_run.info.run_id,
-            )
+    best_run = runs[0]
+    print(
+        f"Best run: {best_run.info.run_id} with f1={best_run.data.metrics.get('macro avg.f1-score')}"
+    )
+
+    ##### 2. Load best model #####
+    best_model_uri = f"{best_run.info.artifact_uri}"
+    print(best_model_uri)
+    best_model = mlflow.sklearn.load_model(best_model_uri)
+
+    ##### 3. Feature importance #####
+    importances = best_model.feature_importances_
+    feat_importances = sorted(
+        zip(FEATURE_COLUMNS, importances), key=lambda x: x[1], reverse=True
+    )
+    print("Top features:", feat_importances[:10])
+
+    # Select features with nonzero importance
+    selected_features = [f for f, imp in feat_importances if imp > 0]
+    print(f"Selected {len(selected_features)} features")
+
+    ##### 4. Retrain with selected features #####
+    X_train_sel = X_train[selected_features]
+    X_test_sel = X_test[selected_features]
+
+    ##### 5. Log new run #####
+    today_iso = time.strftime("%Y-%m-%d")
+    experiment_name = f"{today_iso}_{EXPERIMENT_NAME}_{str(uuid.uuid4())[:4]}"
+    experiment_id = mlflow.create_experiment(experiment_name)
+
+    with mlflow.start_run(experiment_id=experiment_id) as run:
+        tuned_model = DecisionTreeClassifier(random_state=42)
+        tuned_model.fit(X_train_sel, y_train)
+
+        metrics = get_metrics(tuned_model, X_test_sel, y_test)
+        print("New model metrics:", metrics)
+        mlflow.log_metrics(metrics)
+        mlflow.log_params({"selected_features": len(selected_features)})
+        mlflow.sklearn.log_model(tuned_model, artifact_path="selected_model")
 
 
 if __name__ == "__main__":
