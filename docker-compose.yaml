@@ -1,0 +1,65 @@
+services:
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:v3.1.4
+    depends_on:
+      - postgres
+      - minio
+    environment:
+      MLFLOW_S3_ENDPOINT_URL: http://minio:9000
+      AWS_ACCESS_KEY_ID: minio_user
+      AWS_SECRET_ACCESS_KEY: minio_password
+      BACKEND_STORE_URI: postgresql://user:password@postgres:5432/mlflowdb
+      ARTIFACT_ROOT: s3://bucket
+    ports:
+      - "5000:5000"
+    command: >
+      bash -c "pip install psycopg2-binary boto3 && 
+      mlflow server --backend-store-uri postgresql://user:password@postgres:5432/mlflowdb 
+      --artifacts-destination s3://bucket --host 0.0.0.0 --port 5000"
+  # PostgreSQL database
+  postgres:
+    image: postgres:latest
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: mlflowdb
+    ports:
+      - 5432:5432
+    expose:
+      - "5432"
+    volumes:
+      - ./_postgres_data:/var/lib/postgresql/data
+  # MinIO server
+  minio:
+    image: minio/minio
+    expose:
+      - "9000"
+      - "9001"
+    ports:
+      - 9001
+    environment:
+      MINIO_ROOT_USER: "minio_user"
+      MINIO_ROOT_PASSWORD: "minio_password"
+    volumes:
+      - ./_minio_data:/data
+    healthcheck:
+      test: timeout 5s bash -c ':> /dev/tcp/127.0.0.1/9000' || exit 1
+      interval: 1s
+      timeout: 10s
+      retries: 5
+    command: server /data --console-address ":9001"
+  # Create a bucket named "bucket" if it doesn't exist
+  minio-create-bucket:
+    image: minio/mc
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      bash -c "
+      mc alias set minio http://minio:9000 minio_user minio_password &&
+      if ! mc ls minio/bucket; then
+        mc mb minio/bucket
+      else
+        echo 'bucket already exists'
+      fi
+      "
