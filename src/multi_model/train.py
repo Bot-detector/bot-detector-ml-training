@@ -46,6 +46,38 @@ def get_metrics(
     return metrics
 
 
+def register_best_model(experiment_id: str, model_name: str) -> None:
+    """
+    Find the best run in the experiment based on weighted F1 score,
+    and register its model to the MLflow Model Registry.
+    """
+    client = mlflow.MlflowClient()
+
+    # Fetch all runs
+    runs = client.search_runs(
+        experiment_ids=[experiment_id],
+        order_by=["metrics.`weighted avg.f1-score` DESC"],
+        max_results=1,
+    )
+
+    if not runs:
+        print("No runs found for experiment:", experiment_id)
+        return
+
+    best_run = mlflow.get_run(run_id=runs[0].info.run_id)
+    best_score = best_run.data.metrics.get("weighted avg.f1-score")
+
+    print(f"Best run: {best_run.info.run_id} with weighted F1 = {best_score:.4f}")
+
+    print(best_run.outputs.model_outputs)
+    model_id = best_run.outputs.model_outputs[0].model_id
+    logged_model = mlflow.get_logged_model(model_id=model_id)
+
+    # Register model
+    result = mlflow.register_model(model_uri=logged_model.model_uri, name=model_name)
+    print(f"Registered best model as {model_name}, version {result.version}")
+
+
 def main():
     df = load_data(file_path=DATA_FILE, feature_columns=FEATURE_COLUMNS)
     df = data_cleaning(df)
@@ -125,6 +157,8 @@ def main():
                     code_paths=code_paths,
                 )
                 os.remove(model_path)
+
+    register_best_model(experiment_id=experiment_id, model_name=EXPERIMENT_NAME)
 
 
 if __name__ == "__main__":
