@@ -139,3 +139,7 @@ _postgres_data/*
 mlruns/*
 *temp*
 /data/*.zip
+
+dev/*
+dev/.gitkeep
+*.pkl
