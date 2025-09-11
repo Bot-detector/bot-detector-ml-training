@@ -1,8 +1,10 @@
-from pydantic import BaseModel
 import pickle
-from sklearn.tree import DecisionTreeClassifier
-from mlflow.pyfunc.model import PythonModel, PythonModelContext
+
 import pandas as pd
+from mlflow.pyfunc.model import PythonModel, PythonModelContext
+from pydantic import BaseModel
+from sklearn.tree import DecisionTreeClassifier
+
 from _features import feature_engineering
 
 

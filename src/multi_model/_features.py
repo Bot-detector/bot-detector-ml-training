@@ -1,5 +1,6 @@
 import pandas as pd
-from _structs import SKILLS, BOSSES, MINIGAMES
+
+from _structs import BOSSES, MINIGAMES, SKILLS
 
 
 def get_ratio(

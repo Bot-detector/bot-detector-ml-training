@@ -1,5 +1,0 @@
-name: multi_model
-
-entry_points:
-  main:
-    command: "python train.py"
