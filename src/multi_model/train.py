@@ -1,176 +1,30 @@
-import pandas as pd
 from sklearn.model_selection import train_test_split
-from sklearn.tree import DecisionTreeClassifier
 import mlflow
 from sklearn.model_selection import ParameterGrid
-from sklearn.metrics import (
-    accuracy_score,
-    roc_auc_score,
-    confusion_matrix,
-    classification_report,
-)
+from sklearn.metrics import classification_report
 import uuid
 import time
+from _features import feature_engineering
+from _structs import FEATURE_COLUMNS
+from _utils import load_data, data_cleaning
+from _wrapper import DecisionTreeWrapper, InputData, OutputData
+import pickle
+import os
+from pandas import DataFrame
+from pydantic import ValidationError
 
 # --- Configuration ---
 TRACKING_SERVER_URI = "http://localhost:5000"
 EXPERIMENT_NAME = "multi_classifier"
 
-DATA_FILE = "data/2025-08-30_hiscore_data.parquet.gzip"
+DATA_FILE = "../../data/2025-08-30_hiscore_data.parquet.gzip"
 TARGET_COLUMN = "player_label"
-SKILLS = [
-    "attack",
-    "defence",
-    "strength",
-    "hitpoints",
-    "ranged",
-    "prayer",
-    "magic",
-    "cooking",
-    "woodcutting",
-    "fletching",
-    "fishing",
-    "firemaking",
-    "crafting",
-    "smithing",
-    "mining",
-    "herblore",
-    "agility",
-    "thieving",
-    "slayer",
-    "farming",
-    "runecraft",
-    "hunter",
-    "construction",
-]
-MINIGAMES = [
-    # "league",
-    # "bounty_hunter_hunter",
-    # "bounty_hunter_rogue",
-    "lms_rank",
-    "soul_wars_zeal",
-    "cs_all",
-    "cs_beginner",
-    "cs_easy",
-    "cs_medium",
-    "cs_hard",
-    "cs_elite",
-    "cs_master",
-]
-BOSSES = [
-    "abyssal_sire",
-    "alchemical_hydra",
-    "barrows_chests",
-    "bryophyta",
-    "callisto",
-    "cerberus",
-    "chambers_of_xeric",
-    "chambers_of_xeric_challenge_mode",
-    "chaos_elemental",
-    "chaos_fanatic",
-    "commander_zilyana",
-    "corporeal_beast",
-    "crazy_archaeologist",
-    "dagannoth_prime",
-    "dagannoth_rex",
-    "dagannoth_supreme",
-    "deranged_archaeologist",
-    "general_graardor",
-    "giant_mole",
-    "grotesque_guardians",
-    "hespori",
-    "kalphite_queen",
-    "king_black_dragon",
-    "kraken",
-    "kreearra",
-    "kril_tsutsaroth",
-    "mimic",
-    "nex",
-    "nightmare",
-    "phosanis_nightmare",
-    "obor",
-    "sarachnis",
-    "scorpia",
-    "skotizo",
-    "tempoross",
-    "the_gauntlet",
-    "the_corrupted_gauntlet",
-    "theatre_of_blood",
-    "theatre_of_blood_hard",
-    "thermonuclear_smoke_devil",
-    "tombs_of_amascut",
-    "tombs_of_amascut_expert",
-    "tzkal_zuk",
-    "tztok_jad",
-    "venenatis",
-    "vetion",
-    "vorkath",
-    "wintertodt",
-    "zalcano",
-    "zulrah",
-]
-
-FEATURE_COLUMNS = SKILLS + MINIGAMES + BOSSES
 
 
-def load_data(file_path: str, feature_columns: list[str]):
-    print(f"Loading data from {file_path}...")
-    df = pd.read_parquet(file_path)
-    print(f"Data loaded with {len(df)} samples and {len(df.columns)} columns.")
-    # print(df.columns)
-
-    # Ensure all feature columns are present
-    missing_features = [col for col in feature_columns if col not in df.columns]
-    if missing_features:
-        raise ValueError(f"Missing feature columns: {missing_features}")
-    return df
-
-
-def data_cleaning(df: pd.DataFrame) -> pd.DataFrame:
-    print(pd.DataFrame(df.player_label.value_counts()))
-    mask = df["player_label_id"].isin([0, 89])
-    df = df[~mask].copy()
-
-    common_labels = (
-        pd.DataFrame(df.player_label.value_counts())
-        .query("count > 200")
-        .index.to_list()
-    )
-    mask = df.player_label.isin(common_labels)
-    df = df[mask].copy()
-    print(pd.DataFrame(df.player_label.value_counts()))
-    return df
-
-
-def get_ratio(
-    df: pd.DataFrame,
-    COLUMNS: list,
-    total_column: str = None,
-    column_suffix: str = "ratio",
-) -> pd.DataFrame:
-    _df = df.copy()
-    TOTAL = df[COLUMNS].sum(axis=1)
-    for column in COLUMNS:
-        _df[f"{column}_{column_suffix}"] = df[column] / TOTAL
-    if total_column:
-        _df[total_column] = TOTAL
-    return _df
-
-
-def feature_engineering(df: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
-    if "total" in df.columns:
-        df.drop(columns=["total"], inplace=True)
-    df = get_ratio(df, SKILLS, total_column="skill_total")
-    df = get_ratio(df, BOSSES, total_column="boss_total")
-    df = get_ratio(df, MINIGAMES, total_column="minigame_total")
-    new_feature_columns = [c for c in df.columns if c.endswith("_ratio")]
-    new_feature_columns += ["skill_total", "boss_total", "minigame_total"]
-    return df, new_feature_columns
-
-
-def get_metrics(model: DecisionTreeClassifier, X_test, y_test) -> dict:
-    # Predict and evaluate
-    y_pred = model.predict(X_test)
+def get_metrics(
+    model: DecisionTreeWrapper, X_test: DataFrame, y_test: DataFrame
+) -> dict | None:
+    y_pred = model.model.predict(X_test)
 
     report_dict = classification_report(
         y_true=y_test,
@@ -178,63 +32,44 @@ def get_metrics(model: DecisionTreeClassifier, X_test, y_test) -> dict:
         output_dict=True,
         zero_division=0,
     )
-    # _ = {print("/t", {k: v}) for k, v in report_dict.items()}
 
     if not isinstance(report_dict, dict):
-        return
+        return None
 
-    report_dict: dict[str, dict | str]
     metrics = {}
     for pred, v in report_dict.items():
         if not isinstance(v, dict):
             continue
         for _k, _v in v.items():
-            # mlflow.log_metric(key=f"{pred}.{_k}", value=round(_v, 4))
-            # print({f"{pred}.{_k}": round(_v, 4)})
             metrics.update({f"{pred}.{_k}": round(_v, 4)})
     return metrics
-
-
-def train(
-    X_train,
-    y_train,
-    X_test,
-    y_test,
-    model_name,
-    params: dict,
-    experiment_id,
-    parent_run_id,
-):
-    with mlflow.start_run(
-        nested=True,
-        experiment_id=experiment_id,
-        parent_run_id=parent_run_id,
-        log_system_metrics=False,
-    ) as run:
-        print(f"Run ID: {run.info.run_id} - run_name={run.info.run_name} - child")
-        print(f"Training with params: {params}")
-
-        model = DecisionTreeClassifier(random_state=42)
-        model.set_params(**params)
-        model.fit(X=X_train, y=y_train)
-
-        metrics = get_metrics(model=model, X_test=X_test, y_test=y_test)
-        mlflow.log_metrics(metrics=metrics, run_id=run.info.run_id)
-        mlflow.log_params(params=params, run_id=run.info.run_id)
-
-        # idk what is wrong here if i leave this out it works
-        mlflow.sklearn.log_model(sk_model=model, name=model_name, step=1)
 
 
 def main():
     df = load_data(file_path=DATA_FILE, feature_columns=FEATURE_COLUMNS)
     df = data_cleaning(df)
-    df, new_feature_columns = feature_engineering(df)
+    X, y = df[FEATURE_COLUMNS], df[TARGET_COLUMN]
 
-    X, y = df[FEATURE_COLUMNS + new_feature_columns], df[TARGET_COLUMN]
+    # data validation
+    output_fields = set(OutputData.model_fields.keys())
+    target_fields = set(y.unique())
+
+    assert output_fields == target_fields, (
+        f"Mismatch between OutputData fields and target columns in `y`.\n"
+        f"Fields missing in `output data`: {output_fields - target_fields}\n"
+        f"Extra fields in `target column`: {target_fields - output_fields}"
+    )
+
     X_train, X_test, y_train, y_test = train_test_split(
         X, y, test_size=0.2, random_state=42, stratify=y
     )
+
+    # data validation
+    try:
+        _ = [InputData(**x) for x in X_train[:5].to_dict(orient="records")]
+    except ValidationError as e:
+        print(e.json())
+        raise e
 
     param_grid = ParameterGrid(
         {
@@ -243,26 +78,52 @@ def main():
             "min_samples_leaf": [5, 10, 20],
         }
     )
-    today_iso = time.strftime("%Y-%m-%d")
+
     mlflow.set_tracking_uri(TRACKING_SERVER_URI)
-    experiment_id = mlflow.create_experiment(
-        f"{today_iso}_{EXPERIMENT_NAME}_{str(uuid.uuid4())[:4]}"
-    )
+
+    today_iso = time.strftime("%Y-%m-%dT%H:%M")
+    uuid_str = str(uuid.uuid4())[:4]
+    experiment_name = f"{today_iso}_{EXPERIMENT_NAME}_{uuid_str}"
+    experiment_id = mlflow.create_experiment(name=experiment_name)
+
     with mlflow.start_run(experiment_id=experiment_id) as parent_run:
-        print(
-            f"Run ID: {parent_run.info.run_id} - run_name={parent_run.info.run_name} - parent"
-        )
+        _print = f"parent: {parent_run.info.run_id} - name={parent_run.info.run_name}"
+        print(_print)
         for i, params in enumerate(param_grid):
-            train(
-                X_train=X_train,
-                y_train=y_train,
-                X_test=X_test,
-                y_test=y_test,
-                model_name=f"{EXPERIMENT_NAME}_{i}",
-                params=params,
+            with mlflow.start_run(
+                nested=True,
                 experiment_id=experiment_id,
                 parent_run_id=parent_run.info.run_id,
-            )
+                log_system_metrics=False,
+            ) as run:
+                _print = f"child: {run.info.run_id} - name={run.info.run_name}"
+                print(_print)
+                print(f"Training with params: {params}")
+
+                model = DecisionTreeWrapper(
+                    params=params, feature_fn=feature_engineering
+                )
+                model.fit(X=X_train, y=y_train)
+
+                metrics = get_metrics(model=model, X_test=X_test, y_test=y_test)
+                assert isinstance(metrics, dict)
+
+                mlflow.log_metrics(metrics=metrics, run_id=run.info.run_id)
+                mlflow.log_params(params=params, run_id=run.info.run_id)
+
+                model_path = f"{run.info.run_id}.pkl"
+                with open(model_path, "wb") as f:
+                    pickle.dump(model.model, f)
+
+                # idk what is wrong here if i leave this out it works
+                code_paths = ["_wrapper.py", "_features.py", "_structs.py", "_utils.py"]
+                mlflow.pyfunc.log_model(
+                    python_model=model,
+                    name=f"{EXPERIMENT_NAME}_{i}",
+                    artifacts={"model": model_path},
+                    code_paths=code_paths,
+                )
+                os.remove(model_path)
 
 
 if __name__ == "__main__":
