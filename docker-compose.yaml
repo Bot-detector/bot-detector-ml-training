@@ -63,3 +63,20 @@ services:
         echo 'bucket already exists'
       fi
       "
+  
+  mlflow-serve:
+    image: mlflow-serve
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: mlflow-serve
+    depends_on:
+      - minio
+    environment:
+      # AWS/S3 credentials for MinIO
+      AWS_ACCESS_KEY_ID: minio_user
+      AWS_SECRET_ACCESS_KEY: minio_password
+      AWS_ENDPOINT_URL: http://minio:9000
+      MODEL_URI: s3://bucket/39/models/m-ede58e5f535a4f5d8a0601f99ec47b56/artifacts
+    ports:
+      - 5000
