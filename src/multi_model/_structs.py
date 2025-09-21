@@ -1,3 +1,5 @@
+from pydantic import BaseModel
+
 SKILLS = [
     "attack",
     "defence",
@@ -91,3 +93,117 @@ BOSSES = [
 ]
 
 FEATURE_COLUMNS = SKILLS + MINIGAMES + BOSSES
+
+
+class InputData(BaseModel):
+    # Skills
+    attack: int
+    defence: int
+    strength: int
+    hitpoints: int
+    ranged: int
+    prayer: int
+    magic: int
+    cooking: int
+    woodcutting: int
+    fletching: int
+    fishing: int
+    firemaking: int
+    crafting: int
+    smithing: int
+    mining: int
+    herblore: int
+    agility: int
+    thieving: int
+    slayer: int
+    farming: int
+    runecraft: int
+    hunter: int
+    construction: int
+
+    # Minigames
+    lms_rank: int
+    soul_wars_zeal: int
+    cs_all: int
+    cs_beginner: int
+    cs_easy: int
+    cs_medium: int
+    cs_hard: int
+    cs_elite: int
+    cs_master: int
+
+    # Bosses
+    abyssal_sire: int
+    alchemical_hydra: int
+    barrows_chests: int
+    bryophyta: int
+    callisto: int
+    cerberus: int
+    chambers_of_xeric: int
+    chambers_of_xeric_challenge_mode: int
+    chaos_elemental: int
+    chaos_fanatic: int
+    commander_zilyana: int
+    corporeal_beast: int
+    crazy_archaeologist: int
+    dagannoth_prime: int
+    dagannoth_rex: int
+    dagannoth_supreme: int
+    deranged_archaeologist: int
+    general_graardor: int
+    giant_mole: int
+    grotesque_guardians: int
+    hespori: int
+    kalphite_queen: int
+    king_black_dragon: int
+    kraken: int
+    kreearra: int
+    kril_tsutsaroth: int
+    mimic: int
+    nex: int
+    nightmare: int
+    phosanis_nightmare: int
+    obor: int
+    sarachnis: int
+    scorpia: int
+    skotizo: int
+    tempoross: int
+    the_gauntlet: int
+    the_corrupted_gauntlet: int
+    theatre_of_blood: int
+    theatre_of_blood_hard: int
+    thermonuclear_smoke_devil: int
+    tombs_of_amascut: int
+    tombs_of_amascut_expert: int
+    tzkal_zuk: int
+    tztok_jad: int
+    venenatis: int
+    vetion: int
+    vorkath: int
+    wintertodt: int
+    zalcano: int
+    zulrah: int
+
+
+class OutputData(BaseModel):
+    Real_Player: float
+    Fletching_bot: float
+    Vorkath_bot: float
+    Smithing_bot: float
+    Magic_bot: float
+    Fishing_bot: float
+    Wildy_boss_bot: float
+    Wintertodt_bot: float
+    Hunter_bot: float
+    Blast_mine_bot: float
+    Zulrah_bot: float
+    Mining_bot: float
+    Thieving_vyre_bot: float
+    Woodcutting_bot: float
+    Cooking_bot: float
+    Gauntlet_bot: float
+    Barrows_bot: float
+    LMS_bot: float
+    Crafting_bot: float
+    Thieving_master_farmer_bot: float
+    Doom_bot: float

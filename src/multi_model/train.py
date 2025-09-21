@@ -10,9 +10,9 @@ from sklearn.metrics import classification_report
 from sklearn.model_selection import ParameterGrid, train_test_split
 
 from _features import feature_engineering
-from _structs import FEATURE_COLUMNS
+from _structs import FEATURE_COLUMNS, InputData, OutputData
 from _utils import data_cleaning, load_data
-from _wrapper import DecisionTreeWrapper, InputData, OutputData
+from _wrapper import DecisionTreeWrapper
 
 # --- Configuration ---
 TRACKING_SERVER_URI = "http://localhost:5000"
@@ -81,6 +81,7 @@ def register_best_model(experiment_id: str, model_name: str) -> None:
 def main():
     df = load_data(file_path=DATA_FILE, feature_columns=FEATURE_COLUMNS)
     df = data_cleaning(df)
+    # df, _ = feature_engineering(df)
     X, y = df[FEATURE_COLUMNS], df[TARGET_COLUMN]
 
     # data validation
@@ -103,6 +104,9 @@ def main():
     except ValidationError as e:
         print(e.json())
         raise e
+    # feature engineering after split so we ensure no information spill in test set
+    X_train, _ = feature_engineering(X_train)
+    X_test, _ = feature_engineering(X_test)
 
     param_grid = ParameterGrid(
         {
@@ -133,9 +137,7 @@ def main():
                 print(_print)
                 print(f"Training with params: {params}")
 
-                model = DecisionTreeWrapper(
-                    params=params, feature_fn=feature_engineering
-                )
+                model = DecisionTreeWrapper(params=params)
                 model.fit(X=X_train, y=y_train)
 
                 metrics = get_metrics(model=model, X_test=X_test, y_test=y_test)
