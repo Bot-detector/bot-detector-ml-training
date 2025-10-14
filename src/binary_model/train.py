@@ -1,15 +1,11 @@
-import pandas as pd
-from sklearn.model_selection import train_test_split
-from sklearn.tree import DecisionTreeClassifier
-import mlflow
-from sklearn.model_selection import ParameterGrid
-from sklearn.metrics import (
-    accuracy_score,
-    roc_auc_score,
-    confusion_matrix,
-    classification_report,
-)
 import uuid
+import pandas as pd
+from lightgbm import LGBMClassifier
+from sklearn.model_selection import cross_validate, StratifiedKFold
+import mlflow
+import mlflow.sklearn
+import optuna
+from mlflow.tracking import MlflowClient
 
 # --- Configuration ---
 TRACKING_SERVER_URI = "http://localhost:5000"
@@ -17,6 +13,33 @@ EXPERIMENT_NAME = "binary_classifier"
 
 DATA_FILE = "data/2022-10-26_hiscore_data.parquet.gzip"
 TARGET_COLUMN = "confirmed_ban"
+
+CV = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+
+PARAM_GUESS = {
+    'colsample_bytree': 0.9651651365751598,
+    'learning_rate': 0.05310861766637499,
+    'max_depth': 23,
+    'min_child_samples': 84,
+    'min_child_weight': 0.004787755397014158,
+    'min_split_gain': 0.022266875377142784,
+    'n_estimators': 1445,
+    'num_leaves': 255,
+    'reg_alpha': 1.7177943743459194,
+    'reg_lambda': 1.1992203482868355e-05,
+    'subsample': 0.7224340426136543
+}  
+
+SCORING = [
+    "accuracy",
+    "roc_auc",
+    "average_precision",
+    "balanced_accuracy",
+    "precision",
+    "recall",
+    "f1",
+]
+
 SKILLS = [
     "attack",
     "defence",
@@ -42,6 +65,7 @@ SKILLS = [
     "hunter",
     "construction",
 ]
+
 MINIGAMES = [
     "league",
     "bounty_hunter_hunter",
@@ -56,6 +80,7 @@ MINIGAMES = [
     "cs_elite",
     "cs_master",
 ]
+
 BOSSES = [
     "abyssal_sire",
     "alchemical_hydra",
@@ -112,128 +137,83 @@ BOSSES = [
 FEATURE_COLUMNS = SKILLS + MINIGAMES + BOSSES
 
 
-def load_data(file_path: str, feature_columns: list[str]):
-    print(f"Loading data from {file_path}...")
+def load_data(file_path: str, feature_columns: list[str]) -> pd.DataFrame:
     df = pd.read_parquet(file_path)
-    print(f"Data loaded with {len(df)} samples and {len(df.columns)} columns.")
-
-    # Ensure all feature columns are present
-    missing_features = [col for col in feature_columns if col not in df.columns]
-    if missing_features:
-        raise ValueError(f"Missing feature columns: {missing_features}")
+    missing = [c for c in feature_columns if c not in df.columns]
+    if missing:
+        raise ValueError(f"Missing feature columns: {missing}")
     return df
 
 
-def feature_engineering(df: pd.DataFrame) -> pd.DataFrame:
-    return df
+def objective(trial, X, y, experiment_id):
 
+    params = {
+        "objective": "binary",
+        "n_estimators": trial.suggest_int("n_estimators", 50, 1500),
+        "learning_rate": trial.suggest_float("learning_rate", 1e-3, 0.3, log=True),
+        "num_leaves": trial.suggest_int("num_leaves", 15, 255, log=True),
+        "max_depth": trial.suggest_int("max_depth", -1, 24),
+        "min_child_samples": trial.suggest_int("min_child_samples", 5, 100),
+        "min_child_weight": trial.suggest_float("min_child_weight", 1e-3, 10.0, log=True),
+        "subsample": trial.suggest_float("subsample", 0.6, 1.0),
+        "colsample_bytree": trial.suggest_float("colsample_bytree", 0.6, 1.0),
+        "reg_alpha": trial.suggest_float("reg_alpha", 1e-8, 10.0, log=True),
+        "reg_lambda": trial.suggest_float("reg_lambda", 1e-8, 10.0, log=True),
+        "min_split_gain": trial.suggest_float("min_split_gain", 0.0, 0.5),
+        "n_jobs": -1,
+        "random_state": 42,
+        "verbose": -1,
+    }
 
-def log_metrics(model: DecisionTreeClassifier, X_test, y_test):
-    # Predict and evaluate
-    y_pred = model.predict(X_test)
-    y_proba = model.predict_proba(X_test)[:, 1]
+    # child run; inherit parent's experiment implicitly
+    with mlflow.start_run(nested=True, experiment_id=experiment_id, run_name=f"trial_{trial.number}"):
+        model = LGBMClassifier(**params)
+        out = cross_validate(model, X, y, cv=CV, scoring=SCORING)
 
-    tn, fp, fn, tp = confusion_matrix(y_test, y_pred).ravel()
-
-    mlflow.log_metric("true_positives", tp)
-    mlflow.log_metric("false_positives", fp)
-    mlflow.log_metric("true_negatives", tn)
-    mlflow.log_metric("false_negatives", fn)
-    print(f"\t- TP: {tp}, FP: {fp}")
-
-    accuracy = round(float(accuracy_score(y_test, y_pred)), 4)
-    mlflow.log_metric("accuracy", accuracy)
-    print(f"\t- Accuracy: {accuracy}")
-
-    auc = round(float(roc_auc_score(y_test, y_proba)), 4)
-    mlflow.log_metric("auc", auc)
-    print(f"\t- auc: {auc}")
-
-    report_dict = classification_report(y_test, y_pred, output_dict=True)
-    if not isinstance(report_dict, dict):
-        return
-
-    report_dict: dict[str, dict | str]
-    for pred, cf_rep in report_dict.items():
-        if not isinstance(cf_rep, dict):
-            continue
-        for k, v in cf_rep.items():
-            mlflow.log_metric(key=f"{pred}-{k}", value=round(v, 4))
-
-
-def train(X_train, y_train, X_test, y_test, model_name, params: dict, experiment_id):
-    with mlflow.start_run(nested=True, experiment_id=experiment_id) as run:
-        print(f"Run ID: {run.info.run_id} - run_name={run.info.run_name}")
-        print(f"Training with params: {params}")
-        model = DecisionTreeClassifier(random_state=42)
-        model.set_params(**params)
-        model.fit(X=X_train, y=y_train)
-        log_metrics(model=model, X_test=X_test, y_test=y_test)
-        mlflow.sklearn.log_model(sk_model=model, name=model_name)
         mlflow.log_params(params)
+        for metric, values in out.items():  #
+            mlflow.log_metric(f"mean_{metric}", values.mean())
+            mlflow.log_metric(f"std_{metric}", values.std())
+
+        mean_auc = out["test_roc_auc"].mean()
+        std_auc = out["test_roc_auc"].std()
+        mlflow.log_metric("auc_mean", mean_auc)
+        mlflow.log_metric("auc_std", std_auc)
+
+    return mean_auc
 
 
 def main():
-    df = load_data(file_path=DATA_FILE, feature_columns=FEATURE_COLUMNS)
-    df = feature_engineering(df)
-
+    df = load_data(DATA_FILE, FEATURE_COLUMNS)
     X, y = df[FEATURE_COLUMNS], df[TARGET_COLUMN]
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.2, random_state=42
-    )
-
-    param_grid = ParameterGrid(
-        {
-            "criterion": ["gini", "entropy"],
-            "max_depth": [10, 30, 50, 100, 200, 500],
-            "min_samples_leaf": [5, 10, 20],
-        }
-    )
 
     mlflow.set_tracking_uri(TRACKING_SERVER_URI)
     experiment_id = mlflow.create_experiment(
         f"{EXPERIMENT_NAME}-{str(uuid.uuid4())[:4]}"
     )
-    with mlflow.start_run(experiment_id=experiment_id) as parent_run:
-        print(
-            f"Run ID: {parent_run.info.run_id} - run_name={parent_run.info.run_name} - parent"
-        )
-        for i, params in enumerate(param_grid):
-            train(
-                X_train=X_train,
-                y_train=y_train,
-                X_test=X_test,
-                y_test=y_test,
-                model_name=f"{EXPERIMENT_NAME}_{i}",
-                params=params,
-                experiment_id=experiment_id,
-            )
 
-    # query = f"tags.mlflow.parentRunId = '{parent_run.info.run_id}'"
-    # results = mlflow.search_runs(
-    #     experiment_ids=[experiment_id],
-    #     filter_string=query,
-    #     order_by=["metrics.`weighted avg-f1-score` DESC"],
-    #     max_results=5,
-    # )
+    study = optuna.create_study(
+        direction="maximize",
+        sampler=optuna.samplers.TPESampler(seed=42),
+        study_name=f"{experiment_id}-study",
+    )
 
-    # best_run_id = results.iloc[0]["run_id"]
+    study.enqueue_trial(PARAM_GUESS)
 
-    # model_uri = f"runs:/{best_run_id}/model"
-    # print(model_uri)
-    # loaded_model: DecisionTreeClassifier = mlflow.sklearn.load_model(model_uri)
-    # # Get feature importances
-    # importances = loaded_model.feature_importances_
+    with mlflow.start_run(experiment_id=experiment_id, run_name="optuna_parent"):
+        study.optimize(lambda t: objective(t, X, y, experiment_id), n_trials=10)
 
-    # # Select features with importance greater than a threshold
-    # threshold = 0.1  # Adjust as needed
-    # selected_features = X.columns[importances > threshold]
-    # print(selected_features)
+        best_params = study.best_trial.params
+        best_value = float(study.best_value)
+        mlflow.log_metric("best_cv_auc", best_value)
+        mlflow.log_params({f"best_{k}": v for k, v in best_params.items()})
 
-    # # Use only the selected features
-    # X_train_selected = X_train[selected_features]
-    # X_test_selected = X_test[selected_features]
-    # loaded_model.fit(X_train_selected, y_train)
+        # refit on full data as another child
+        with mlflow.start_run(nested=True, run_name="refit_best", experiment_id=experiment_id):
+            model = LGBMClassifier(random_state=42, **best_params)
+            model.fit(X, y)
+            mlflow.log_params(best_params)
+            mlflow.sklearn.log_model(model, artifact_path="refit_model")
 
 
 if __name__ == "__main__":
