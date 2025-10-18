@@ -1,34 +1,39 @@
+import socket
+import urllib.parse
 import uuid
-import pandas as pd
-from lightgbm import LGBMClassifier
-from sklearn.model_selection import cross_validate, StratifiedKFold
+
 import mlflow
 import mlflow.sklearn
 import optuna
-from mlflow.tracking import MlflowClient
+import pandas as pd
+from lightgbm import LGBMClassifier
+from mlflow.models import infer_signature
+from sklearn.model_selection import cross_validate, StratifiedKFold
 
 # --- Configuration ---
 TRACKING_SERVER_URI = "http://localhost:5000"
 EXPERIMENT_NAME = "binary_classifier"
 
-DATA_FILE = "data/2022-10-26_hiscore_data.parquet.gzip"
+DATA_FILE = "../../data/2022-10-26_hiscore_data.parquet.gzip"
 TARGET_COLUMN = "confirmed_ban"
+
 
 CV = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
 
+
 PARAM_GUESS = {
-    'colsample_bytree': 0.9651651365751598,
-    'learning_rate': 0.05310861766637499,
-    'max_depth': 23,
-    'min_child_samples': 84,
-    'min_child_weight': 0.004787755397014158,
-    'min_split_gain': 0.022266875377142784,
-    'n_estimators': 1445,
-    'num_leaves': 255,
-    'reg_alpha': 1.7177943743459194,
-    'reg_lambda': 1.1992203482868355e-05,
-    'subsample': 0.7224340426136543
-}  
+    "colsample_bytree": 0.9651651365751598,
+    "learning_rate": 0.05310861766637499,
+    "max_depth": 23,
+    "min_child_samples": 84,
+    "min_child_weight": 0.004787755397014158,
+    "min_split_gain": 0.022266875377142784,
+    "n_estimators": 1445,
+    "num_leaves": 255,
+    "reg_alpha": 1.7177943743459194,
+    "reg_lambda": 1.1992203482868355e-05,
+    "subsample": 0.7224340426136543,
+}
 
 SCORING = [
     "accuracy",
@@ -137,6 +142,16 @@ BOSSES = [
 FEATURE_COLUMNS = SKILLS + MINIGAMES + BOSSES
 
 
+def server_running(uri="http://localhost:5000", timeout=1):
+    parsed = urllib.parse.urlparse(uri)
+    host = parsed.hostname or "127.0.0.1"
+    port = parsed.port or 5000
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.settimeout(timeout)
+        return s.connect_ex((host, port)) == 0
+
+
 def load_data(file_path: str, feature_columns: list[str]) -> pd.DataFrame:
     df = pd.read_parquet(file_path)
     missing = [c for c in feature_columns if c not in df.columns]
@@ -145,7 +160,16 @@ def load_data(file_path: str, feature_columns: list[str]) -> pd.DataFrame:
     return df
 
 
-def objective(trial, X, y, experiment_id):
+def log_run(output, params):
+    mlflow.log_params(params)
+    for metric, values in output.items():
+        metric = metric.removeprefix("test_")
+
+        mlflow.log_metric(f"mean_{metric}", values.mean())
+        mlflow.log_metric(f"std_{metric}", values.std())
+
+
+def objective(trial, X, y):
 
     params = {
         "objective": "binary",
@@ -165,55 +189,59 @@ def objective(trial, X, y, experiment_id):
         "verbose": -1,
     }
 
-    # child run; inherit parent's experiment implicitly
-    with mlflow.start_run(nested=True, experiment_id=experiment_id, run_name=f"trial_{trial.number}"):
-        model = LGBMClassifier(**params)
-        out = cross_validate(model, X, y, cv=CV, scoring=SCORING)
+    model = LGBMClassifier(**params)
+    out = cross_validate(
+        model, X, y, cv=CV, scoring=SCORING, n_jobs=1
+    )  # n_jobs is 1 because LGBM uses all cores
+    with mlflow.start_run(run_name=f"trial_{trial.number}"):
+        log_run(out, params=params)
 
-        mlflow.log_params(params)
-        for metric, values in out.items():  #
-            mlflow.log_metric(f"mean_{metric}", values.mean())
-            mlflow.log_metric(f"std_{metric}", values.std())
-
-        mean_auc = out["test_roc_auc"].mean()
-        std_auc = out["test_roc_auc"].std()
-        mlflow.log_metric("auc_mean", mean_auc)
-        mlflow.log_metric("auc_std", std_auc)
-
-    return mean_auc
+    return out["test_roc_auc"].mean()
 
 
 def main():
+    if server_running(TRACKING_SERVER_URI):
+        mlflow.set_tracking_uri(TRACKING_SERVER_URI)
+    else:
+        mlflow.set_tracking_uri("file:./mlruns")
+
+    experiment_id = f"{EXPERIMENT_NAME}_{uuid.uuid4().hex[:4]}"
+    mlflow.set_experiment(experiment_id)
+
     df = load_data(DATA_FILE, FEATURE_COLUMNS)
     X, y = df[FEATURE_COLUMNS], df[TARGET_COLUMN]
-
-    mlflow.set_tracking_uri(TRACKING_SERVER_URI)
-    experiment_id = mlflow.create_experiment(
-        f"{EXPERIMENT_NAME}-{str(uuid.uuid4())[:4]}"
-    )
 
     study = optuna.create_study(
         direction="maximize",
         sampler=optuna.samplers.TPESampler(seed=42),
-        study_name=f"{experiment_id}-study",
+        study_name=experiment_id,
     )
 
     study.enqueue_trial(PARAM_GUESS)
 
-    with mlflow.start_run(experiment_id=experiment_id, run_name="optuna_parent"):
-        study.optimize(lambda t: objective(t, X, y, experiment_id), n_trials=10)
+    study.optimize(
+        lambda t: objective(t, X, y),
+        n_trials=10,
+    )
 
-        best_params = study.best_trial.params
-        best_value = float(study.best_value)
-        mlflow.log_metric("best_cv_auc", best_value)
-        mlflow.log_params({f"best_{k}": v for k, v in best_params.items()})
+    # cross-validated metrics with the final params
+    best_params = study.best_trial.params
+    cv_model = LGBMClassifier(random_state=42, **best_params)
+    out = cross_validate(cv_model, X, y, cv=CV, scoring=SCORING, n_jobs=1)
 
-        # refit on full data as another child
-        with mlflow.start_run(nested=True, run_name="refit_best", experiment_id=experiment_id):
-            model = LGBMClassifier(random_state=42, **best_params)
-            model.fit(X, y)
-            mlflow.log_params(best_params)
-            mlflow.sklearn.log_model(model, artifact_path="refit_model")
+    # fit on full data for the artifact
+    refit_model = LGBMClassifier(random_state=42, **best_params)
+    refit_model.fit(X, y)
+
+    with mlflow.start_run(run_name="refit_best"):
+        log_run(out, best_params)
+        sig = infer_signature(X.head(100), refit_model.predict_proba(X.head(100)))
+        mlflow.sklearn.log_model(
+            refit_model,
+            name="refit_model",
+            signature=sig,
+            input_example=X.head(5),
+        )
 
 
 if __name__ == "__main__":
