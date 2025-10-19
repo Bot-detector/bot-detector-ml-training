@@ -2,16 +2,24 @@ import pickle
 
 import pandas as pd
 from mlflow.pyfunc.model import PythonModel, PythonModelContext
-from sklearn.tree import DecisionTreeClassifier
+from lightgbm import LGBMClassifier
 
 from _features import feature_engineering
 from _structs import InputData, OutputData
 
 
-class DecisionTreeWrapper(PythonModel):
+class LGBMWrapper(PythonModel):
     def __init__(self, params: dict):
         self.params = params
-        self.model = DecisionTreeClassifier(**params)
+        self.model = LGBMClassifier(**params)
+
+    @classmethod
+    def from_lgbm(cls, model: LGBMClassifier):
+        """Create LGBMWrapper from an existing LGBMClassifier."""
+        params = model.get_params()
+        wrapper = cls(params)
+        wrapper.model = model
+        return wrapper
 
     def fit(self, X, y):
         """Train the decision tree model"""
@@ -22,7 +30,7 @@ class DecisionTreeWrapper(PythonModel):
         with open(context.artifacts["model"], "rb") as f:
             self.model = pickle.load(f)
 
-    def get_model(self) -> DecisionTreeClassifier:
+    def get_model(self) -> LGBMClassifier:
         return self.model
 
     def get_input_json_schema(self):

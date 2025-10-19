@@ -1,4 +1,16 @@
 import pandas as pd
+import socket
+import urllib.parse
+
+
+def server_running(uri="http://localhost:5000", timeout=1):
+    parsed = urllib.parse.urlparse(uri)
+    host = parsed.hostname or "127.0.0.1"
+    port = parsed.port or 5000
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.settimeout(timeout)
+        return s.connect_ex((host, port)) == 0
 
 
 def load_data(file_path: str, feature_columns: list[str]):
