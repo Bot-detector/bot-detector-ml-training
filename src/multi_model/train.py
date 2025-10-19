@@ -1,18 +1,19 @@
 import os
 import pickle
+import tempfile
 import time
 import uuid
 
 import mlflow
-from pandas import DataFrame
+import optuna
+from lightgbm import LGBMClassifier
 from pydantic import ValidationError
-from sklearn.metrics import classification_report
-from sklearn.model_selection import ParameterGrid, train_test_split
+from sklearn.model_selection import cross_validate, StratifiedKFold
 
 from _features import feature_engineering
 from _structs import FEATURE_COLUMNS, InputData, OutputData
-from _utils import data_cleaning, load_data
-from _wrapper import DecisionTreeWrapper
+from _utils import data_cleaning, load_data, server_running
+from _wrapper import LGBMWrapper
 
 # --- Configuration ---
 TRACKING_SERVER_URI = "http://localhost:5000"
@@ -21,67 +22,79 @@ EXPERIMENT_NAME = "multi_classifier"
 DATA_FILE = "../../data/2025-08-30_hiscore_data.parquet.gzip"
 TARGET_COLUMN = "player_label"
 
+CV = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
 
-def get_metrics(
-    model: DecisionTreeWrapper, X_test: DataFrame, y_test: DataFrame
-) -> dict | None:
-    y_pred = model.model.predict(X_test)
+PARAM_GUESS = {
+    "n_estimators": 1134,
+    "learning_rate": 0.003928837419116695,
+    "num_leaves": 52,
+    "max_depth": 7,
+    "min_child_samples": 31,
+    "min_child_weight": 0.007160950259502004,
+    "subsample": 0.8643540359280603,
+    "colsample_bytree": 0.6669806043037383,
+    "reg_alpha": 0.012258874962110665,
+    "reg_lambda": 0.006538683324341339,
+    "min_split_gain": 0.15879816199038882,
+}
 
-    report_dict = classification_report(
-        y_true=y_test,
-        y_pred=y_pred,
-        output_dict=True,
-        zero_division=0,
-    )
-
-    if not isinstance(report_dict, dict):
-        return None
-
-    metrics = {}
-    for pred, v in report_dict.items():
-        if not isinstance(v, dict):
-            continue
-        for _k, _v in v.items():
-            metrics.update({f"{pred}.{_k}": round(_v, 4)})
-    return metrics
+# Multiclass-safe scorers
+SCORING = [
+    "accuracy",
+    "balanced_accuracy",
+    "precision_weighted",
+    "recall_weighted",
+    "f1_weighted",
+]
 
 
-def register_best_model(experiment_id: str, model_name: str) -> None:
-    """
-    Find the best run in the experiment based on weighted F1 score,
-    and register its model to the MLflow Model Registry.
-    """
-    client = mlflow.MlflowClient()
+def log_run(output, params):
+    mlflow.log_params(params)
+    for metric, values in output.items():
+        metric = metric.removeprefix("test_")
+        mlflow.log_metric(f"mean_{metric}", values.mean())
+        mlflow.log_metric(f"std_{metric}", values.std())
 
-    # Fetch all runs
-    runs = client.search_runs(
-        experiment_ids=[experiment_id],
-        order_by=["metrics.`weighted avg.f1-score` DESC"],
-        max_results=1,
-    )
 
-    if not runs:
-        print("No runs found for experiment:", experiment_id)
-        return
-
-    best_run = mlflow.get_run(run_id=runs[0].info.run_id)
-    best_score = best_run.data.metrics.get("weighted avg.f1-score")
-
-    print(f"Best run: {best_run.info.run_id} with weighted F1 = {best_score:.4f}")
-
-    print(best_run.outputs.model_outputs)
-    model_id = best_run.outputs.model_outputs[0].model_id
-    logged_model = mlflow.get_logged_model(model_id=model_id)
-
-    # Register model
-    result = mlflow.register_model(model_uri=logged_model.model_uri, name=model_name)
-    print(f"Registered best model as {model_name}, version {result.version}")
+def objective(trial, X, y):
+    params = {
+        "objective": "multiclass",
+        "n_estimators": trial.suggest_int("n_estimators", 50, 1500),
+        "learning_rate": trial.suggest_float("learning_rate", 1e-3, 0.3, log=True),
+        "num_leaves": trial.suggest_int("num_leaves", 15, 255, log=True),
+        "max_depth": trial.suggest_int("max_depth", -1, 24),
+        "min_child_samples": trial.suggest_int("min_child_samples", 5, 100),
+        "min_child_weight": trial.suggest_float("min_child_weight", 1e-3, 10.0, log=True),
+        "subsample": trial.suggest_float("subsample", 0.6, 1.0),
+        "colsample_bytree": trial.suggest_float("colsample_bytree", 0.6, 1.0),
+        "reg_alpha": trial.suggest_float("reg_alpha", 1e-8, 10.0, log=True),
+        "reg_lambda": trial.suggest_float("reg_lambda", 1e-8, 10.0, log=True),
+        "min_split_gain": trial.suggest_float("min_split_gain", 0.0, 0.5),
+        "n_jobs": -1,
+        "random_state": 42,
+        "verbose": -1,
+    }
+    model = LGBMClassifier(**params)
+    out = cross_validate(model, X, y, cv=CV, scoring=SCORING, n_jobs=1)
+    with mlflow.start_run(run_name=f"trial_{trial.number}"):
+        log_run(out, params)
+    # optimize for weighted F1 by default
+    return out["test_f1_weighted"].mean()
 
 
 def main():
+
+    if server_running(TRACKING_SERVER_URI):
+        mlflow.set_tracking_uri(TRACKING_SERVER_URI)
+    else:
+        mlflow.set_tracking_uri("file:./mlruns")
+
+    today_iso = time.strftime("%Y-%m-%dT%H:%M")
+    experiment_name = f"{today_iso}_{EXPERIMENT_NAME}_{uuid.uuid4().hex[:4]}"
+    mlflow.set_experiment(experiment_name)
+
     df = load_data(file_path=DATA_FILE, feature_columns=FEATURE_COLUMNS)
     df = data_cleaning(df)
-    # df, _ = feature_engineering(df)
     X, y = df[FEATURE_COLUMNS], df[TARGET_COLUMN]
 
     # data validation
@@ -94,73 +107,50 @@ def main():
         f"Extra fields in `target column`: {target_fields - output_fields}"
     )
 
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.2, random_state=42, stratify=y
-    )
-
     # data validation
     try:
-        _ = [InputData(**x) for x in X_train[:5].to_dict(orient="records")]
+        _ = [InputData(**x) for x in X[:5].to_dict(orient="records")]
     except ValidationError as e:
         print(e.json())
         raise e
-    # feature engineering after split so we ensure no information spill in test set
-    X_train, _ = feature_engineering(X_train)
-    X_test, _ = feature_engineering(X_test)
 
-    param_grid = ParameterGrid(
-        {
-            "criterion": ["gini", "entropy"],
-            "max_depth": [10, 30, 50, 100, 200, 500],
-            "min_samples_leaf": [5, 10, 20],
-        }
+    X, _ = feature_engineering(X)
+
+    study = optuna.create_study(
+        direction="maximize",
+        sampler=optuna.samplers.TPESampler(seed=42),
+        study_name=experiment_name,
     )
 
-    mlflow.set_tracking_uri(TRACKING_SERVER_URI)
+    study.enqueue_trial(PARAM_GUESS)
 
-    today_iso = time.strftime("%Y-%m-%dT%H:%M")
-    uuid_str = str(uuid.uuid4())[:4]
-    experiment_name = f"{today_iso}_{EXPERIMENT_NAME}_{uuid_str}"
-    experiment_id = mlflow.create_experiment(name=experiment_name)
+    study.optimize(lambda t: objective(t, X, y), n_trials=10)
 
-    with mlflow.start_run(experiment_id=experiment_id) as parent_run:
-        _print = f"parent: {parent_run.info.run_id} - name={parent_run.info.run_name}"
-        print(_print)
-        for i, params in enumerate(param_grid):
-            with mlflow.start_run(
-                nested=True,
-                experiment_id=experiment_id,
-                parent_run_id=parent_run.info.run_id,
-                log_system_metrics=False,
-            ) as run:
-                _print = f"child: {run.info.run_id} - name={run.info.run_name}"
-                print(_print)
-                print(f"Training with params: {params}")
+    # cross-validated metrics with the final params
+    best_params = study.best_trial.params
 
-                model = DecisionTreeWrapper(params=params)
-                model.fit(X=X_train, y=y_train)
+    cv_model = LGBMClassifier(**best_params)
+    out = cross_validate(cv_model, X, y, cv=CV, scoring=SCORING, n_jobs=1)
 
-                metrics = get_metrics(model=model, X_test=X_test, y_test=y_test)
-                assert isinstance(metrics, dict)
+    # fit on full data for the artifact
+    refit_model = LGBMClassifier(**best_params)
+    refit_model.fit(X, y)
 
-                mlflow.log_metrics(metrics=metrics, run_id=run.info.run_id)
-                mlflow.log_params(params=params, run_id=run.info.run_id)
+    with mlflow.start_run(run_name="refit_best"):
+        log_run(out, best_params)
 
-                model_path = f"{run.info.run_id}.pkl"
-                with open(model_path, "wb") as f:
-                    pickle.dump(model.model, f)
+        model_pkl = os.path.join(tempfile.mkdtemp(), "model.pkl")
+        with open(model_pkl, "wb") as f:
+            pickle.dump(refit_model, f)
 
-                # idk what is wrong here if i leave this out it works
-                code_paths = ["_wrapper.py", "_features.py", "_structs.py", "_utils.py"]
-                mlflow.pyfunc.log_model(
-                    python_model=model,
-                    name=f"{EXPERIMENT_NAME}_{i}",
-                    artifacts={"model": model_path},
-                    code_paths=code_paths,
-                )
-                os.remove(model_path)
+        info = mlflow.pyfunc.log_model(
+            python_model=LGBMWrapper.from_lgbm(refit_model),
+            name="refit_model",
+            artifacts={"model": model_pkl},
+            code_paths=["_wrapper.py", "_features.py", "_structs.py", "_utils.py"],
+        )
 
-    register_best_model(experiment_id=experiment_id, model_name=EXPERIMENT_NAME)
+        mlflow.register_model(model_uri=info.model_uri, name=EXPERIMENT_NAME)
 
 
 if __name__ == "__main__":
